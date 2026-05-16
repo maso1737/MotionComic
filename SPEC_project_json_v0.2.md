@@ -213,6 +213,7 @@ v0.2 では `enter: drop_from_top` のみ正式サポート。リリック文字
 - semantic_shift の波及ルール定義（どの概念がどのサブシステムをどう変えるか辞書化）
 - 凹凸キッズの「結合・追従」物理（layer間リンク構造）の表現方法
 - onomatopoeia の enter バリエーション追加可否（憲章原則1に照らし慎重に）
+- layer_role 既定 easing マップの採否（D2/A論点由来。例 frame_inside→paper_soft。憲章原則2に照らし慎重に。現状は「easing無指定＝線形、JSON明示のみ適用」）
 
 ---
 
