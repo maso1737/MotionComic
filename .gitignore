@@ -4,3 +4,12 @@
 TrioSisBrothers.txt
 うえへ うえへ.txt
 凹凸キッズ.txt
+
+# 内部資料（成果物のみ公開／GitHubへ上げない）
+CLAUDE.md
+SPEC_project_json_v0.1.md
+SPEC_project_json_v0.2.md
+DIRECTIVE_D1_paint.md
+DIRECTIVE_D2_motion.md
+animator_base.html
+images_sample/
