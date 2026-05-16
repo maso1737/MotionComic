@@ -1,0 +1,74 @@
+{
+  "_note": "★検証用フィクスチャ（D1実出力ではない）。D1出力は events/audio/onomatopoeia が空既定のため、受け入れ基準（縦スクロール貫通＋semantic_shift＋moment＋panel deform＋scroll_bind easing）を検証する目的で D2 が手書き。PNG は同梱せずプレイヤーのプレースホルダ描画で貫通確認する（統括判断C）。",
+  "version": "0.2",
+  "id": "triosis-scene01",
+  "title": "TrioSisBrothers / Scene 01 (検証フィクスチャ)",
+  "work": "TrioSisBrothers",
+  "scroll": { "axis": "y", "length": 9000, "unit_label": "m", "speed_reactive": true },
+  "stage": { "width": 1080, "height": 1920, "background": "#f4efe6", "camera_depth": 1.0 },
+  "assets": [
+    { "id": "a_sky",        "type": "image", "src": "img/L_sky.png",        "w": 1080, "h": 1920 },
+    { "id": "a_far",        "type": "image", "src": "img/L_far.png",        "w": 1080, "h": 1920 },
+    { "id": "a_mid",        "type": "image", "src": "img/L_mid.png",        "w": 1080, "h": 1920 },
+    { "id": "a_kakashi",    "type": "image", "src": "img/L_kakashi.png",    "w": 1080, "h": 1920 },
+    { "id": "a_fore",       "type": "image", "src": "img/L_fore.png",       "w": 1080, "h": 1920 },
+    { "id": "a_reveal",     "type": "image", "src": "img/L_reveal.png",     "w": 1080, "h": 1920 }
+  ],
+  "layers": [
+    { "id": "L_sky",     "name": "空_不動",        "asset": "a_sky",     "z": 0,  "depth": 0.0,
+      "scroll_bind": null, "layer_role": "bg" },
+    { "id": "L_far",     "name": "遠景",           "asset": "a_far",     "z": 10, "depth": 0.35,
+      "scroll_bind": { "y": { "factor": 0.35 } }, "layer_role": "bg" },
+    { "id": "L_mid",     "name": "中景",           "asset": "a_mid",     "z": 20, "depth": 0.7,
+      "scroll_bind": { "y": { "factor": 0.7 }, "easing": "paper_soft" }, "layer_role": "frame_inside" },
+    { "id": "L_kakashi", "name": "カカシ兄_本体",  "asset": "a_kakashi", "z": 30, "depth": 1.0,
+      "scroll_bind": { "y": { "factor": 1.0 }, "easing": "wind_lag" }, "layer_role": "traveler" },
+    { "id": "L_fore",    "name": "手前_葉",        "asset": "a_fore",    "z": 40, "depth": 1.6,
+      "scroll_bind": { "y": { "factor": 1.6 }, "easing": "wobble_child" }, "layer_role": "fx" },
+    { "id": "L_reveal",  "name": "出現_記憶層",    "asset": "a_reveal",  "z": 35, "depth": 1.0,
+      "scroll_bind": { "y": { "factor": 1.0 } }, "layer_role": "frame_inside" }
+  ],
+  "panels": [
+    { "id": "P1",
+      "shape": [[120,260],[960,260],[960,1660],[120,1660]],
+      "stroke": { "color": "#222", "width": 7 },
+      "deform": { "mode": "spring", "amount": 0.0, "bind_progress": true },
+      "spawn_layers": [] },
+    { "id": "P2",
+      "shape": [[80,520],[1000,460],[1000,1500],[80,1560]],
+      "stroke": { "color": "#1a1a1a", "width": 8 },
+      "deform": { "mode": "bend", "amount": 0.0, "bind_progress": false },
+      "spawn_layers": ["L_reveal"] }
+  ],
+  "onomatopoeia": [
+    { "id": "O_don", "text": "ドーン！", "asset": null,
+      "at": [0.30, 0.36], "enter": "drop_from_top", "z": 90,
+      "transform": { "x": 540, "y": 760, "scale": 1.0, "rot": -5 },
+      "style": { "font": "comic", "color": "#151515", "stroke": "#fff", "stroke_w": 10, "size": 130 },
+      "x_lyric_anim": null },
+    { "id": "O_sa", "text": "……さらり", "asset": null,
+      "at": [0.60, 0.70], "enter": "drop_from_top", "z": 85,
+      "transform": { "x": 540, "y": 1180, "scale": 0.8, "rot": 2 },
+      "style": { "font": "comic", "color": "#3a4a66", "stroke": "#fff", "stroke_w": 7, "size": 90 } }
+  ],
+  "events": [
+    { "at": [0.10, 0.26], "target": "P1",
+      "set": { "deform.amount": 0.9 }, "easing": "snap_comic" },
+    { "at": [0.38, 0.52], "target": "P2",
+      "set": { "deform.amount": 0.8, "deform.mode": "bend" }, "easing": "paper_soft" },
+    { "at": [0.40, 0.425], "type": "moment",
+      "set": { "post.grain": 0, "audio.mute": true, "scroll.snap": true } },
+    { "at": [0.55, 0.78], "type": "semantic_shift",
+      "target": "world.gravity", "value": "memory" },
+    { "at": [0.58, 0.95], "type": "semantic_shift",
+      "target": "scroll.unit_label", "value": ["m", "1200m", "祈り", "うた"] }
+  ],
+  "audio": {
+    "bgm": { "asset": "bgm_main", "level": 0.25, "scene_reactive": true },
+    "se":  [ { "asset": "se_don", "at": 0.31, "level": 0.9 } ]
+  },
+  "post": {
+    "grain": 0.12, "vignette": 0.22, "bloom": 0.25,
+    "color_shift": { "r": 1.02, "g": 1.0, "b": 0.98 }, "chromatic": 0.0, "lut": null
+  }
+}
