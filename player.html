@@ -533,34 +533,133 @@ function drawOnoma(){
     CTX.restore();
   }
 }
+/* ============================ [C] 撮影処理パス ======================
+ * SPEC §10 固定セットのみ（grain/vignette/bloom/color_shift/chromatic/lut）。
+ * 憲章「紙を撮った質感」: 3D化・実写化しない／紙質感を飛ばさない。
+ * 駆動: §10既定 → events §8.1 で POST.* 区間補間（findTarget/dotSet 既配線）
+ *       → moment §8.3 で撮影処理が抜ける素の一瞬 → semantic §8.2 色温度波及。
+ * Safari/iPad・GitHub Pages 運用: ctx.filter 非対応時はフォールバック。 */
+const CANFILTER = (()=>{ try{
+  const c=document.createElement('canvas').getContext('2d');
+  c.filter='blur(1px)'; return c.filter==='blur(1px)';
+}catch(e){ return false; } })();
+let POSTBUF=null, PCTX=null, BLOOMBUF=null, BCTX=null, GRAINTILE=null;
+
+function buildGrainTile(){
+  // フィルムグレイン用ノイズタイル（一度だけ生成・毎フレーム微移動で再利用）。
+  const N=256, c=document.createElement('canvas'); c.width=N; c.height=N;
+  const x=c.getContext('2d'), id=x.createImageData(N,N);
+  for(let i=0;i<id.data.length;i+=4){
+    const v=(Math.random()*255)|0;
+    id.data[i]=id.data[i+1]=id.data[i+2]=v; id.data[i+3]=255;
+  }
+  x.putImageData(id,0,0); return c;
+}
+function setupPostBuffers(){
+  POSTBUF=document.createElement('canvas');
+  POSTBUF.width=CV.width; POSTBUF.height=CV.height;
+  PCTX=POSTBUF.getContext('2d');
+  const bw=Math.max(1,Math.round(CV.width/4)), bh=Math.max(1,Math.round(CV.height/4));
+  BLOOMBUF=document.createElement('canvas'); BLOOMBUF.width=bw; BLOOMBUF.height=bh;
+  BCTX=BLOOMBUF.getContext('2d');
+  if(!GRAINTILE) GRAINTILE=buildGrainTile();
+}
+function applyLUT(ctx){
+  // 将来用フック。POST.lut==null は無処理（実LUT適用は v0.3）。
+  if(!POST || POST.lut==null) return;
+  // TODO v0.3: LUT 実適用（SPEC §12 論点）。
+}
 function applyPost(){
-  // D3本実装はスコープ外。値の受け渡し＋moment連動のみ（憲章どおり）。
-  const g = WORLD.momentGrain!=null ? WORLD.momentGrain : (POST.grain||0);
-  const vig = POST.vignette||0;
-  const cs = POST.color_shift||{r:1,g:1,b:1};
-  // 色温度（semantic 波及）＋color_shift を軽量オーバーレイで近似
-  const warm = WORLD.colorTemp;
-  if(Math.abs(warm)>0.01 || cs.r!==1 || cs.b!==1){
-    CTX.save(); CTX.globalCompositeOperation='soft-light';
-    CTX.fillStyle = warm<0 ? `rgba(90,140,200,${Math.min(.5,Math.abs(warm))})`
-                           : `rgba(220,160,90,${Math.min(.5,warm)})`;
-    CTX.fillRect(0,0,STAGE.width,STAGE.height); CTX.restore();
+  if(!POSTBUF) return;
+  const W=CV.width, H=CV.height;
+  // §8.3 moment: 撮影処理が抜ける素の一瞬（grainはspec値=0 / 追加リッチも抜く）
+  const moment = WORLD.momentGrain!=null;
+  const g     = moment ? (WORLD.momentGrain||0) : (POST.grain||0);
+  const bloom = moment ? 0 : (POST.bloom||0);
+  const chrom = moment ? 0 : (POST.chromatic||0);
+  const vig   = POST.vignette||0;
+  const cs    = POST.color_shift||{r:1,g:1,b:1};
+  // §8.2 semantic 波及（最小連続写像・統括承認）: 正=暖(r↑b↓)/負=寒(b↑r↓)
+  const warm  = WORLD.colorTemp||0;
+  const gain  = { r:(cs.r==null?1:cs.r)*(1+0.18*warm),
+                  g:(cs.g==null?1:cs.g),
+                  b:(cs.b==null?1:cs.b)*(1-0.18*warm) };
+  const lo=v=>Math.max(0,Math.min(1,v));
+
+  // ---- 1. color_shift（RGB乗算近似）＋ semantic 色温度 ----
+  if(gain.r<1||gain.g<1||gain.b<1){
+    CTX.save(); CTX.globalCompositeOperation='multiply';
+    CTX.fillStyle=`rgb(${Math.round(lo(Math.min(1,gain.r))*255)},`+
+                  `${Math.round(lo(Math.min(1,gain.g))*255)},`+
+                  `${Math.round(lo(Math.min(1,gain.b))*255)})`;
+    CTX.fillRect(0,0,W,H); CTX.restore();
   }
-  if(vig>0){
-    const r=CTX.createRadialGradient(STAGE.width/2,STAGE.height/2,STAGE.height*0.3,
-      STAGE.width/2,STAGE.height/2,STAGE.height*0.75);
-    r.addColorStop(0,'rgba(0,0,0,0)'); r.addColorStop(1,`rgba(0,0,0,${vig})`);
-    CTX.fillStyle=r; CTX.fillRect(0,0,STAGE.width,STAGE.height);
+  if(gain.r>1||gain.g>1||gain.b>1){
+    CTX.save(); CTX.globalCompositeOperation='screen';
+    CTX.fillStyle=`rgb(${Math.round(lo(gain.r-1)*255)},`+
+                  `${Math.round(lo(gain.g-1)*255)},`+
+                  `${Math.round(lo(gain.b-1)*255)})`;
+    CTX.fillRect(0,0,W,H); CTX.restore();
   }
-  if(g>0){
-    const n=120, s=4;
-    CTX.save(); CTX.globalAlpha=Math.min(.5,g);
-    for(let i=0;i<n;i++){
-      CTX.fillStyle = Math.random()<.5?'#000':'#fff';
-      CTX.fillRect(Math.random()*STAGE.width,Math.random()*STAGE.height,s,s);
-    }
+
+  // ---- 2. bloom（光のにじみ・紙質感を飛ばさない範囲）----
+  if(bloom>0){
+    BCTX.clearRect(0,0,BLOOMBUF.width,BLOOMBUF.height);
+    BCTX.filter = CANFILTER ? 'blur(2px) brightness(1.18)' : 'none';
+    BCTX.drawImage(CV,0,0,BLOOMBUF.width,BLOOMBUF.height);
+    BCTX.filter='none';
+    CTX.save();
+    CTX.globalCompositeOperation='screen';
+    CTX.globalAlpha=Math.min(0.55, bloom*0.7);
+    CTX.imageSmoothingEnabled=true;
+    CTX.drawImage(BLOOMBUF,0,0,W,H);
     CTX.restore();
   }
+
+  // ---- 3. chromatic（色収差・既定0・控えめ）----
+  if(chrom>0){
+    const d=Math.max(1, chrom*8);
+    const tmp=document.createElement('canvas'); tmp.width=W; tmp.height=H;
+    const tx=tmp.getContext('2d');
+    PCTX.clearRect(0,0,W,H); PCTX.drawImage(CV,0,0);   // 原シーン退避
+    const chan=(hex,dx)=>{
+      tx.globalCompositeOperation='source-over';
+      tx.clearRect(0,0,W,H); tx.drawImage(POSTBUF,0,0);
+      tx.globalCompositeOperation='multiply';
+      tx.fillStyle=hex; tx.fillRect(0,0,W,H);
+      CTX.save(); CTX.globalCompositeOperation='screen';
+      CTX.drawImage(tmp,dx,0); CTX.restore();
+    };
+    CTX.save(); CTX.globalCompositeOperation='source-over';
+    CTX.fillStyle='#000'; CTX.fillRect(0,0,W,H); CTX.restore();
+    chan('#ff0000', d);     // R を +x
+    chan('#00ff00', 0);     // G は中央
+    chan('#0000ff',-d);     // B を -x
+  }
+
+  // ---- 4. vignette（周辺減光）----
+  if(vig>0){
+    const r=CTX.createRadialGradient(W/2,H/2,H*0.30, W/2,H/2,H*0.75);
+    r.addColorStop(0,'rgba(0,0,0,0)');
+    r.addColorStop(1,`rgba(0,0,0,${Math.min(0.85,vig)})`);
+    CTX.save(); CTX.fillStyle=r; CTX.fillRect(0,0,W,H); CTX.restore();
+  }
+
+  // ---- 5. grain（フィルムグレイン・タイル微移動）----
+  if(g>0){
+    const t=GRAINTILE;
+    const ox=(Math.random()*t.width)|0, oy=(Math.random()*t.height)|0;
+    CTX.save();
+    CTX.globalCompositeOperation='soft-light';
+    CTX.globalAlpha=Math.min(0.6, g*1.6);
+    CTX.translate(-ox,-oy);
+    CTX.fillStyle=CTX.createPattern(t,'repeat');
+    CTX.fillRect(ox,oy,W,H);
+    CTX.restore();
+  }
+
+  // ---- 6. lut フック（v0.3送り・null時無処理）----
+  applyLUT(CTX);
 }
 function frame(){
   readProgress();
@@ -578,8 +677,8 @@ function frame(){
   for(const l of LAYERS) drawLayer(l);
   drawPanels();
   drawOnoma();
-  applyPost();
   CTX.restore();
+  applyPost();              // [C]撮影処理＝最終段（デバイスpx空間・scale変換外）
   syncAudio();
   drawHud();
 }
@@ -643,6 +742,7 @@ function resize(){
   // 描画バッファはステージ論理解像度固定（座標は基準解像度の論理px・SPEC§3）
   CV.width=Math.round(STAGE.width);
   CV.height=Math.round(STAGE.height);
+  setupPostBuffers();                // [C]撮影処理バッファをCV実寸で確保
 }
 addEventListener('resize', ()=>{ if(PROJ) resize(); });
 
