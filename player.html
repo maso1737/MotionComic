@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>MotionComic Player v0.2 [B]演出再生</title>
+<!-- 単一HTML自己完結。依存はCDNのみ（JSZip：zip入力用）。設計憲章＆iPad運用のため必須。 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:#15171b;overflow:hidden;
+    font-family:-apple-system,"Helvetica Neue",sans-serif;color:#e8e8e8;
+    -webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+  /* スクロール入力はネイティブscrollを利用（iPad慣性対応） */
+  #scroller{position:fixed;inset:0;overflow:auto;-webkit-overflow-scrolling:touch}
+  #spacer{width:1px;height:1px}
+  #scroller.x{overflow-x:auto;overflow-y:hidden}
+  canvas{position:fixed;inset:0;margin:auto;touch-action:none;
+    image-rendering:auto;pointer-events:none}
+  #hud{position:fixed;left:10px;top:env(safe-area-inset-top,8px);z-index:30;
+    font-size:11px;line-height:1.5;background:rgba(10,12,15,.55);
+    padding:7px 10px;border-radius:8px;backdrop-filter:blur(4px);
+    pointer-events:none;font-variant-numeric:tabular-nums;max-width:46vw}
+  #hud b{color:#7fd4ff}
+  #unitLabel{position:fixed;right:14px;top:50%;z-index:25;
+    font-size:30px;font-weight:700;letter-spacing:.04em;
+    color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.6);
+    transform:translateY(-50%);pointer-events:none;
+    transition:opacity .4s;writing-mode:vertical-rl;opacity:.92}
+  #drop{position:fixed;inset:0;z-index:50;display:flex;align-items:center;
+    justify-content:center;flex-direction:column;gap:18px;text-align:center;
+    background:#15171b;padding:24px}
+  #drop h1{font-size:18px;font-weight:600;color:#fff}
+  #drop p{font-size:13px;color:#9aa;line-height:1.7;max-width:420px}
+  #drop label{display:inline-block;border:1px solid #4a5;color:#cfe;
+    padding:11px 22px;border-radius:10px;font-size:14px;cursor:pointer}
+  #drop input{display:none}
+  #drop .demo{border-color:#46c;color:#bcf}
+  #err{position:fixed;left:0;right:0;bottom:0;z-index:60;
+    background:#3a1414;color:#ffb4b4;font-size:11px;padding:8px 12px;
+    display:none;white-space:pre-wrap;max-height:35vh;overflow:auto}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="scroller"><div id="spacer"></div></div>
+<canvas id="cv"></canvas>
+<div id="hud" class="hidden"></div>
+<div id="unitLabel" class="hidden"></div>
+<div id="drop">
+  <h1>MotionComic Player v0.2</h1>
+  <p>D1作画ツール出力の <b>zip</b>（project.json＋img/PNG）か <b>project.json</b> 単体、
+     またはフォルダをドロップ／選択。<br>
+     URL <code>?proj=test/triosis_scene01.json</code> で直接読込も可。</p>
+  <label>ファイルを選ぶ<input id="file" type="file" accept=".zip,.json,application/json,application/zip" multiple webkitdirectory></label>
+  <label class="demo" id="btnDemo">検証フィクスチャを読む (test/triosis_scene01.json)</label>
+</div>
+<div id="err"></div>
+
+<script>
+"use strict";
+/* =========================================================================
+ *  MotionComic Player  ── [B]スクロール表現設定（演出再生）
+ *  契約: SPEC_project_json_v0.2.md  / 入力: D1(index.html) 出力 project.json+PNG
+ *  設計憲章: 「3Dではない、でも生きている」/ 少ない文法 / 意味駆動
+ *  統括判断: A=無指定easingは線形(明示時のみ適用) B=semantic_shift最小波及
+ *           C=test/ に検証用手書きJSON同梱可
+ * ========================================================================= */
+
+const CV  = document.getElementById('cv');
+const CTX = CV.getContext('2d');
+const HUD = document.getElementById('hud');
+const UNIT= document.getElementById('unitLabel');
+const SCROLLER = document.getElementById('scroller');
+const SPACER   = document.getElementById('spacer');
+const DROP = document.getElementById('drop');
+const ERR  = document.getElementById('err');
+
+/* --- コンソールエラー0 を可視検証するためのエラーフック --- */
+let errCount = 0;
+function showErr(msg){
+  errCount++;
+  ERR.style.display='block';
+  ERR.textContent += msg + '\n';
+}
+window.addEventListener('error', e=>showErr('[error] '+(e.message||e.error)));
+window.addEventListener('unhandledrejection', e=>showErr('[promise] '+(e.reason&&e.reason.message||e.reason)));
+
+/* ============================ easing 5プリセット =========================
+ * SPEC §8.x 固定。これ以外は使わない（憲章: 少ない文法）。
+ * 進行率 t(0..1) を感情語カーブへ写像。scroll_bind / events で共通利用。 */
+const EASINGS = {
+  paper_soft  : t => 1 - Math.pow(1 - t, 2.2),                       // 紙っぽく遅れる
+  wobble_child: t => { const c=2*Math.PI/0.9;                        // 子供っぽい弾み
+    return t<=0?0:t>=1?1:Math.pow(2,-9*t)*Math.sin((t*1.0-0.075)*c)+1; },
+  snap_comic  : t => t<0.55 ? 0.9*Math.pow(t/0.55,3)                 // 漫画的キメ（タメ→ピシッ）
+                            : 0.9+0.1*(1-Math.pow(1-(t-0.55)/0.45,2)),
+  float_memory: t => 0.5-0.5*Math.cos(Math.PI*Math.pow(t,0.7)),      // 記憶っぽく漂う
+  wind_lag    : t => { const k=Math.max(0,t-0.12)/0.88;              // 布が遅れて追う
+    return k<=0?0:1-Math.pow(1-k,3); }
+};
+// scroll_bind 用：追従の時間遅れ特性（lerp係数, バネ overshoot）
+const BIND_DYN = {
+  paper_soft  : { k:0.085, spring:false },
+  wobble_child: { k:0.20 , spring:true , stf:0.030, dmp:0.78 },
+  snap_comic  : { k:0.34 , spring:true , stf:0.085, dmp:0.62 },
+  float_memory: { k:0.035, spring:false },
+  wind_lag    : { k:0.060, spring:false }
+};
+function easeFn(name){ return EASINGS[name] || (t=>t); }   // A: 無指定/未知=線形
+
+/* ============================ 状態 ============================ */
+let PROJ=null, STAGE={width:1080,height:1920}, AXIS='y';
+let LAYERS=[], PANELS=[], ONOMA=[], EVENTS=[], AUDIO={}, POST={};
+let imageCache=new Map();      // assetId -> {img, ok}
+let audioEls=new Map();        // assetId -> HTMLAudioElement
+let progress=0;                // 共通時間軸 0..1（px非依存）
+let raf=0;
+
+// semantic_shift / moment が書き換える「世界の意味状態」（B: 最小波及辞書）
+const WORLD = {
+  unitLabel:'m',          // scroll.unit_label の現在表示
+  gravity:'normal',       // world.gravity 概念名
+  easingBias:null,        // 全追従に被せる感情バイアス（漂い等）
+  colorTemp:0,            // -1寒色 .. +1暖色（色温度波及）
+  uiFloat:0,              // UI浮遊量
+  audioDelay:0, audioDuck:0,
+  parallaxMul:1,          // パララックス強度倍率
+  textDrift:0,            // テキスト浮遊
+  momentFreeze:false, momentGrain:null, momentMute:false
+};
+
+/* ============================ ローダ ============================ */
+function placeholderImg(id, w, h){
+  // C前提: 検証フィクスチャはPNGを同梱しない → 視認可能なプレースホルダ描画。
+  // パララックス/役割が見えるよう色＋グリッド＋IDラベル。これは検証用代替。
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const x=c.getContext('2d');
+  let hsh=0; for(const ch of id) hsh=(hsh*31+ch.charCodeAt(0))>>>0;
+  const hue=hsh%360;
+  x.fillStyle=`hsla(${hue},45%,62%,0.34)`; x.fillRect(0,0,w,h);
+  x.strokeStyle=`hsla(${hue},55%,40%,0.45)`; x.lineWidth=2;
+  for(let gy=0; gy<h; gy+=Math.round(h/14)){ x.beginPath();x.moveTo(0,gy);x.lineTo(w,gy);x.stroke(); }
+  for(let gx=0; gx<w; gx+=Math.round(w/8)){ x.beginPath();x.moveTo(gx,0);x.lineTo(gx,h);x.stroke(); }
+  x.fillStyle=`hsl(${hue},60%,28%)`;
+  x.font=`bold ${Math.round(w/22)}px sans-serif`;
+  x.textAlign='center';
+  x.fillText(id, w/2, h*0.5);
+  x.font=`${Math.round(w/40)}px sans-serif`;
+  x.fillText('(placeholder / 検証用代替・PNG未読込)', w/2, h*0.5+Math.round(w/24));
+  return c;
+}
+function loadImageEl(src){
+  return new Promise(res=>{
+    const im=new Image();
+    im.crossOrigin='anonymous';
+    im.onload=()=>res({img:im,ok:true});
+    im.onerror=()=>res({img:null,ok:false});
+    im.src=src;
+  });
+}
+
+async function loadFromZip(file){
+  const zip=await JSZip.loadAsync(file);
+  let jf=null;
+  zip.forEach((p,e)=>{ if(/(^|\/)project\.json$/.test(p)&&!e.dir) jf=e; });
+  if(!jf) throw new Error('project.json が zip 内に見つかりません');
+  const proj=JSON.parse(await jf.async('string'));
+  const baseDir=jf.name.replace(/project\.json$/,'');
+  const blobs=new Map();
+  for(const a of (proj.assets||[])){
+    if(a.type!=='image') continue;
+    const cand=[baseDir+a.src, a.src, baseDir+'img/'+a.src.split('/').pop()];
+    let f=null; for(const c of cand){ f=zip.file(c); if(f) break; }
+    if(f){ blobs.set(a.id, URL.createObjectURL(await f.async('blob'))); }
+  }
+  for(const a of (proj.assets||[])){
+    if(a.type==='audio'){
+      const cand=[baseDir+a.src, a.src];
+      let f=null; for(const c of cand){ f=zip.file(c); if(f) break; }
+      if(f){ blobs.set(a.id, URL.createObjectURL(await f.async('blob'))); }
+    }
+  }
+  await applyProject(proj, id=>blobs.get(id)||null);
+}
+
+async function loadFromFiles(fileList){
+  const files=[...fileList];
+  const zip=files.find(f=>/\.zip$/i.test(f.name));
+  if(zip) return loadFromZip(zip);
+  const jf=files.find(f=>/project\.json$|\.json$/i.test(f.name));
+  if(!jf) throw new Error('project.json か zip を選んでください');
+  const proj=JSON.parse(await jf.text());
+  const byName=new Map(files.map(f=>[f.name.split('/').pop(), f]));
+  await applyProject(proj, id=>{
+    const a=(proj.assets||[]).find(x=>x.id===id); if(!a) return null;
+    const f=byName.get(a.src.split('/').pop()); return f?URL.createObjectURL(f):null;
+  });
+}
+
+async function loadFromUrl(jsonUrl){
+  const r=await fetch(jsonUrl,{cache:'no-store'});
+  if(!r.ok) throw new Error('fetch失敗: '+jsonUrl+' ('+r.status+')');
+  const proj=await r.json();
+  const base=jsonUrl.replace(/[^/]*$/,'');
+  await applyProject(proj, id=>{
+    const a=(proj.assets||[]).find(x=>x.id===id); if(!a) return null;
+    return /^https?:|^\//.test(a.src) ? a.src : base+a.src;
+  });
+}
+
+/* ============================ プロジェクト適用 ============================ */
+async function applyProject(proj, srcResolver){
+  PROJ=proj;
+  STAGE={ width:proj.stage?.width||1080, height:proj.stage?.height||1920,
+          background:proj.stage?.background||'#f4efe6' };
+  AXIS = proj.scroll?.axis || 'y';
+  WORLD.unitLabel = proj.scroll?.unit_label || '';
+  POST = Object.assign({grain:0,vignette:0,bloom:0,chromatic:0,
+          color_shift:{r:1,g:1,b:1}}, proj.post||{});
+  EVENTS = (proj.events||[]).map(e=>({...e, _fired:false}));
+  ONOMA  = (proj.onomatopoeia||[]).map(o=>({...o}));
+  AUDIO  = proj.audio||{};
+
+  // layers: D1出力はフルステージPNG・transform焼込済 / z昇順で重ねる
+  LAYERS = [...(proj.layers||[])]
+    .map(l=>({ ...l,
+      depth: (l.depth==null?1:l.depth),
+      transform: l.transform||{x:0,y:0,scale:1,rot:0},
+      bind: l.scroll_bind||null,
+      _e:0, _v:0 }))                    // scroll_bind 追従の内部状態
+    .sort((a,b)=>(a.z||0)-(b.z||0));
+
+  PANELS = (proj.panels||[]).map(p=>({ ...p,
+      deform: p.deform||{mode:'spring',amount:0,bind_progress:true},
+      spawn_layers: p.spawn_layers||[],
+      _amt:0, _spawn:0 }));
+
+  // 画像ロード（失敗時プレースホルダ＝検証用代替）
+  imageCache.clear();
+  for(const a of (proj.assets||[])){
+    if(a.type!=='image') continue;
+    const url=srcResolver(a.id);
+    let r={img:null,ok:false};
+    if(url) r=await loadImageEl(url);
+    imageCache.set(a.id, r.ok ? {img:r.img,ok:true}
+      : {img:placeholderImg(a.id, a.w||STAGE.width, a.h||STAGE.height), ok:false});
+  }
+  // audio
+  audioEls.forEach(a=>{a.pause();}); audioEls.clear();
+  for(const a of (proj.assets||[])){
+    if(a.type!=='audio') continue;
+    const url=srcResolver(a.id); if(!url) continue;
+    const el=new Audio(url); el.loop=!!a.loop; el.preload='auto';
+    el.crossOrigin='anonymous'; audioEls.set(a.id, el);
+  }
+
+  setupScroller();
+  resize();
+  DROP.classList.add('hidden');
+  HUD.classList.remove('hidden');
+  UNIT.classList.remove('hidden');
+  // 自動再生制限対策：最初のタッチ/クリックでBGM起動
+  const kick=()=>{ startBgm(); window.removeEventListener('pointerdown',kick); };
+  window.addEventListener('pointerdown',kick);
+  if(!raf) loop();
+}
+
+/* ============================ スクロール入力 ============================
+ * px非依存：progress = scroll位置 / 仮想長。axis で y / x / y_invert。 */
+function setupScroller(){
+  const L = (PROJ.scroll?.length)||8000;
+  SCROLLER.classList.toggle('x', AXIS==='x');
+  if(AXIS==='x'){ SPACER.style.width=L+'px'; SPACER.style.height='1px'; }
+  else          { SPACER.style.height=L+'px'; SPACER.style.width='1px'; }
+  // y_invert（うえへ）：最下端から開始し「上へ」スクロールで progress 増加
+  SCROLLER.scrollTo(0, AXIS==='y_invert' ? L : 0);
+  SCROLLER.onscroll=readProgress;
+  readProgress();
+}
+function readProgress(){
+  const L=(PROJ.scroll?.length)||8000;
+  if(AXIS==='x'){
+    const max=SCROLLER.scrollWidth-SCROLLER.clientWidth;
+    progress = max>0 ? SCROLLER.scrollLeft/max : 0;
+  } else {
+    const max=SCROLLER.scrollHeight-SCROLLER.clientHeight;
+    let p = max>0 ? SCROLLER.scrollTop/max : 0;
+    progress = (AXIS==='y_invert') ? 1-p : p;   // 上スクロールで進行
+  }
+  progress=Math.min(1,Math.max(0,progress));
+}
+
+/* ============================ semantic_shift 最小波及 ===================
+ * B: v0.2 は波及辞書未定義。受け入れ基準デモに必要な最小のみハードコード。
+ * 拡張せず、必要になった波及は論点として報告（v0.3で辞書化予定）。 */
+function applySemantic(target, value, amt){
+  // amt: 0..1（区間内の効き具合。出入りを滑らかに）
+  if(target==='world.gravity' && value==='memory'){
+    WORLD.gravity='memory';
+    WORLD.easingBias='float_memory';     // 追従が漂う
+    WORLD.colorTemp = -0.5*amt;          // 色温度：寒色へ
+    WORLD.uiFloat   = 8*amt;             // UI/単位ラベル浮遊
+    WORLD.audioDelay= 0.35*amt;          // 音が遅れて届く
+    WORLD.audioDuck = 0.5*amt;           // BGMさらにうっすら
+    WORLD.parallaxMul = 1 + 0.6*amt;     // 奥行きが伸びる感覚
+    WORLD.textDrift = amt;
+  } else if(target==='scroll.unit_label'){
+    // 数値→詩：配列なら progress に応じ順に置換（1200m →「祈り」等）
+    if(Array.isArray(value)){
+      const i=Math.min(value.length-1, Math.floor(amt*value.length));
+      WORLD.unitLabel = value[i];
+    } else WORLD.unitLabel = value;
+  } else {
+    // 未定義 target → 拡張せず無視（論点として報告対象）
+    WORLD._unhandled = WORLD._unhandled||new Set();
+    WORLD._unhandled.add(target+' = '+JSON.stringify(value));
+  }
+}
+function resetSemantic(){
+  WORLD.easingBias=null; WORLD.colorTemp=0; WORLD.uiFloat=0;
+  WORLD.audioDelay=0; WORLD.audioDuck=0; WORLD.parallaxMul=1; WORLD.textDrift=0;
+  if(WORLD.gravity!=='memory' && PROJ) WORLD.unitLabel=PROJ.scroll?.unit_label||WORLD.unitLabel;
+}
+
+/* ============================ events 評価 ============================ */
+function dotSet(obj, path, val){
+  const ks=path.split('.'); let o=obj;
+  for(let i=0;i<ks.length-1;i++){ o[ks[i]]=o[ks[i]]||{}; o=o[ks[i]]; }
+  o[ks[ks.length-1]]=val;
+}
+function findTarget(id){
+  if(!id) return null;
+  if(id.startsWith('post')) return POST;
+  return PANELS.find(p=>p.id===id) || LAYERS.find(l=>l.id===id) || null;
+}
+function evalEvents(){
+  resetSemantic();
+  WORLD.momentFreeze=false; WORLD.momentGrain=null; WORLD.momentMute=false;
+  let anySem=false;
+
+  for(const ev of EVENTS){
+    const [s,e]=ev.at||[0,0];
+    const span=Math.max(1e-6,e-s);
+    const raw=(progress-s)/span;        // 区間内 0..1（範囲外は前後にクランプ）
+    const inRange = progress>=s && progress<=e;
+    const k=Math.min(1,Math.max(0,raw));
+
+    if(ev.type==='semantic_shift'){
+      // 出入りを滑らかに（区間中心で最大）
+      const amt = inRange ? Math.min(1, Math.sin(Math.PI*k)*1.4) : 0;
+      if(amt>0){ applySemantic(ev.target, ev.value, k); anySem=true; }
+      continue;
+    }
+    if(ev.type==='moment'){
+      if(inRange){
+        const st=ev.set||{};
+        if('post.grain' in st) WORLD.momentGrain=st['post.grain'];
+        if(st['audio.mute']) WORLD.momentMute=true;
+        if(st['scroll.snap']) WORLD.momentFreeze=true;   // 一瞬の静止
+      }
+      continue;
+    }
+    // §8.1 数値イベント：[s,e] で set 値へ easing 補間
+    const tgt=findTarget(ev.target); if(!tgt||!ev.set) continue;
+    const ef=easeFn(ev.easing);                 // A: 無指定=線形
+    for(const [key,goal] of Object.entries(ev.set)){
+      if(typeof goal==='number'){
+        if(ev._base===undefined) {}
+        ev._from = ev._from||{};
+        if(ev._from[key]===undefined){
+          const cur=key.split('.').reduce((o,kk)=>o&&o[kk], tgt);
+          ev._from[key]= (typeof cur==='number')?cur:0;
+        }
+        const v = ev._from[key] + (goal-ev._from[key])*ef(k);
+        dotSet(tgt,key,v);
+      } else {
+        // 離散値（deform.mode 等）は区間入りで切替
+        if(progress>=s) dotSet(tgt,key,goal);
+      }
+    }
+  }
+  HUD._sem = anySem;
+}
+
+/* ============================ scroll_bind 追従 ====================== */
+function updateBinds(){
+  for(const l of LAYERS){
+    if(!l.bind){ l._e=progress; continue; }
+    const f = (l.bind.y&&l.bind.y.factor!=null)? l.bind.y.factor
+            : (l.bind.x&&l.bind.x.factor!=null)? l.bind.x.factor : 1;
+    // A: easing は JSON明示時のみ。semantic_shift の easingBias は意味波及として許可。
+    const ename = WORLD.easingBias || l.bind.easing || null;
+    const target = progress*f;
+    if(!ename){ l._e=target; continue; }       // 無指定=線形（即時追従）
+    const dyn = BIND_DYN[ename] || {k:0.12,spring:false};
+    if(dyn.spring){
+      const a=dyn.stf*(target-l._e) - dyn.dmp*l._v;
+      l._v+=a; l._e+=l._v;
+    } else {
+      l._e += (target-l._e)*dyn.k;
+    }
+  }
+}
+
+/* ============================ panels.deform ========================
+ * 4種固定（spring/bend/snap/round）。bind_progress=true は progress駆動、
+ * false は events.set("deform.amount") 値を使用。spawn_layers は変形量連動出現。 */
+function deformShape(p){
+  const pts=p.shape; if(!pts||pts.length<3) return [];
+  const d=p.deform||{};
+  // amount: bind_progress なら progress由来の山なり、そうでなければ set値
+  let amt;
+  if(d.bind_progress){
+    amt = Math.sin(Math.PI*progress) * (d.amount? d.amount : 0.6) + (d.amount||0)*0.0;
+    amt = Math.max(amt, d.amount||0);
+  } else amt = d.amount||0;
+  p._amt += (amt - p._amt)*0.18;                // 滑らかに
+  const A=p._amt;
+
+  // 重心
+  let cx=0,cy=0; pts.forEach(q=>{cx+=q[0];cy+=q[1];}); cx/=pts.length; cy/=pts.length;
+  const tt=performance.now()/1000;
+  return pts.map((q,i)=>{
+    let [px,py]=q; const dx=px-cx, dy=py-cy;
+    const ph=i/pts.length*Math.PI*2;
+    switch(d.mode){
+      case 'spring':            // ばね揺れ
+        px+=Math.sin(tt*7+ph)*22*A; py+=Math.cos(tt*7+ph)*22*A; break;
+      case 'bend':{             // たわみ（中央が膨らむ）
+        const t=(px-Math.min(...pts.map(z=>z[0])))/
+                (Math.max(...pts.map(z=>z[0]))-Math.min(...pts.map(z=>z[0]))+1e-6);
+        py += Math.sin(t*Math.PI)*70*A * (dy>=0?1:-1); break; }
+      case 'snap':              // ピシッ：一瞬外へ張ってから締まる
+        { const s=1+0.10*A*(1-Math.min(1,A*1.6)); px=cx+dx*s; py=cy+dy*s; } break;
+      case 'round':{            // 角丸：角を重心側へ寄せ柔らかく
+        px=px-dx*0.18*A; py=py-dy*0.18*A; break; }
+    }
+    return [px,py];
+  });
+}
+function roundedPath(ctx, pts, mode, A){
+  ctx.beginPath();
+  if(mode==='round' && A>0.02){
+    const r=Math.min(60, 60*A);
+    for(let i=0;i<pts.length;i++){
+      const p0=pts[i], p1=pts[(i+1)%pts.length];
+      if(i===0) ctx.moveTo((p0[0]+p1[0])/2,(p0[1]+p1[1])/2);
+      ctx.arcTo(p1[0],p1[1],
+        (p1[0]+pts[(i+2)%pts.length][0])/2,(p1[1]+pts[(i+2)%pts.length][1])/2, r);
+    }
+  } else {
+    pts.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
+  }
+  ctx.closePath();
+}
+
+/* ============================ 描画ループ ============================ */
+function axisOffset(depth){
+  // 「3Dではない」: 平面レイヤーの相対ドリフトで奥行きを出す。
+  // depth 0=不動 / 1=等速 / >1=手前ほど速い。中央基準で前後にドリフト。
+  const base = (AXIS==='x'? STAGE.width : STAGE.height) * 0.55 * WORLD.parallaxMul;
+  const p = WORLD.momentFreeze ? Math.round(progress*40)/40 : progress;
+  const shift = (p-0.5) * base * depth;
+  if(AXIS==='x')        return {ox:-shift, oy:0};
+  if(AXIS==='y_invert') return {ox:0, oy: shift};   // 上昇感（世界が降りる）
+  return {ox:0, oy:-shift};
+}
+function drawLayer(l){
+  const a=imageCache.get(l.asset); if(!a) return;
+  const off=axisOffset(l.depth);
+  // scroll_bind の追従ズレを上乗せ（progress との差分を画面移動へ）
+  let bx=0,by=0;
+  if(l.bind){
+    const lag=(l._e - progress);
+    const mag=(AXIS==='x'?STAGE.width:STAGE.height)*0.18;
+    if(AXIS==='x') bx=lag*mag; else by=lag*mag*(AXIS==='y_invert'?-1:1);
+  }
+  const sc = 1 + (l.depth-1)*0.04;              // 手前ほどわずかに大きく
+  const t=l.transform||{x:0,y:0,scale:1,rot:0};
+  CTX.save();
+  CTX.translate(STAGE.width/2+off.ox+bx, STAGE.height/2+off.oy+by);
+  CTX.scale(sc*(t.scale||1), sc*(t.scale||1));
+  CTX.rotate((t.rot||0)*Math.PI/180);
+  CTX.globalAlpha = l._alpha==null?1:l._alpha;
+  CTX.drawImage(a.img, -STAGE.width/2+(t.x||0), -STAGE.height/2+(t.y||0),
+                STAGE.width, STAGE.height);
+  CTX.restore();
+}
+function drawPanels(){
+  for(const p of PANELS){
+    const pts=deformShape(p); if(!pts.length) continue;
+    const st=p.stroke||{color:'#222',width:6};
+    CTX.save();
+    roundedPath(CTX, pts, p.deform.mode, p._amt);
+    CTX.strokeStyle=st.color||'#222';
+    CTX.lineWidth=st.width||6; CTX.lineJoin='round';
+    CTX.stroke();
+    CTX.restore();
+    // spawn_layers: 枠変形に同期してレイヤー出現
+    const active=Math.min(1, p._amt*1.8);
+    p._spawn += (active-p._spawn)*0.12;
+    for(const lid of p.spawn_layers){
+      const L=LAYERS.find(x=>x.id===lid); if(L) L._alpha=Math.max(L._alpha||0,p._spawn);
+    }
+  }
+}
+function drawOnoma(){
+  for(const o of ONOMA){
+    if(o.enter && o.enter!=='drop_from_top') continue;  // §7: drop_from_top のみ
+    const [s,e]=o.at||[0,1];
+    if(progress<s-0.02 || progress>e+0.15) continue;
+    const k=Math.min(1,Math.max(0,(progress-s)/Math.max(1e-6,e-s)));
+    const drop=easeFn('snap_comic')(Math.min(1,k*1.3));  // 上からカード的に乗る
+    const tr=o.transform||{x:STAGE.width/2,y:STAGE.height/2,scale:1,rot:0};
+    const y0=-STAGE.height*0.25, ty=tr.y;
+    const cy=y0+(ty-y0)*drop;
+    CTX.save();
+    CTX.translate(tr.x, cy + WORLD.textDrift*Math.sin(performance.now()/600)*10);
+    CTX.scale(tr.scale||1, tr.scale||1); CTX.rotate((tr.rot||0)*Math.PI/180);
+    if(o.asset && imageCache.get(o.asset)){
+      const im=imageCache.get(o.asset).img;
+      CTX.drawImage(im,-im.width/2,-im.height/2);
+    } else {
+      const sty=o.style||{};
+      CTX.font=`bold ${(sty.size||90)}px ${sty.font==='comic'?'"Arial Black",sans-serif':'sans-serif'}`;
+      CTX.textAlign='center'; CTX.textBaseline='middle';
+      CTX.lineJoin='round';
+      if(sty.stroke){ CTX.strokeStyle=sty.stroke; CTX.lineWidth=sty.stroke_w||8;
+        CTX.strokeText(o.text||'', 0,0); }
+      CTX.fillStyle=sty.color||'#111'; CTX.fillText(o.text||'', 0,0);
+    }
+    CTX.restore();
+  }
+}
+function applyPost(){
+  // D3本実装はスコープ外。値の受け渡し＋moment連動のみ（憲章どおり）。
+  const g = WORLD.momentGrain!=null ? WORLD.momentGrain : (POST.grain||0);
+  const vig = POST.vignette||0;
+  const cs = POST.color_shift||{r:1,g:1,b:1};
+  // 色温度（semantic 波及）＋color_shift を軽量オーバーレイで近似
+  const warm = WORLD.colorTemp;
+  if(Math.abs(warm)>0.01 || cs.r!==1 || cs.b!==1){
+    CTX.save(); CTX.globalCompositeOperation='soft-light';
+    CTX.fillStyle = warm<0 ? `rgba(90,140,200,${Math.min(.5,Math.abs(warm))})`
+                           : `rgba(220,160,90,${Math.min(.5,warm)})`;
+    CTX.fillRect(0,0,STAGE.width,STAGE.height); CTX.restore();
+  }
+  if(vig>0){
+    const r=CTX.createRadialGradient(STAGE.width/2,STAGE.height/2,STAGE.height*0.3,
+      STAGE.width/2,STAGE.height/2,STAGE.height*0.75);
+    r.addColorStop(0,'rgba(0,0,0,0)'); r.addColorStop(1,`rgba(0,0,0,${vig})`);
+    CTX.fillStyle=r; CTX.fillRect(0,0,STAGE.width,STAGE.height);
+  }
+  if(g>0){
+    const n=120, s=4;
+    CTX.save(); CTX.globalAlpha=Math.min(.5,g);
+    for(let i=0;i<n;i++){
+      CTX.fillStyle = Math.random()<.5?'#000':'#fff';
+      CTX.fillRect(Math.random()*STAGE.width,Math.random()*STAGE.height,s,s);
+    }
+    CTX.restore();
+  }
+}
+function frame(){
+  readProgress();
+  evalEvents();
+  updateBinds();
+  // レイヤー alpha 既定（spawn対象は drawPanels で持ち上げ）
+  for(const l of LAYERS){
+    const isSpawn=PANELS.some(p=>p.spawn_layers.includes(l.id));
+    l._alpha = isSpawn ? (l._alpha!=null?l._alpha:0) : 1;
+  }
+  CTX.clearRect(0,0,CV.width,CV.height);
+  CTX.save();
+  CTX.scale(CV.width/STAGE.width, CV.height/STAGE.height);
+  CTX.fillStyle=STAGE.background; CTX.fillRect(0,0,STAGE.width,STAGE.height);
+  for(const l of LAYERS) drawLayer(l);
+  drawPanels();
+  drawOnoma();
+  applyPost();
+  CTX.restore();
+  syncAudio();
+  drawHud();
+}
+function loop(){ try{ frame(); }catch(e){ showErr('[frame] '+e.message); }
+  raf=requestAnimationFrame(loop); }
+
+/* ============================ audio ============================ */
+let bgmStarted=false;
+function startBgm(){
+  if(bgmStarted) return;
+  const b=AUDIO.bgm; if(b&&audioEls.get(b.asset)){
+    const el=audioEls.get(b.asset);
+    el.volume=Math.min(1,(b.level??0.25));
+    el.play().catch(()=>{});
+    bgmStarted=true;
+  }
+}
+function syncAudio(){
+  const b=AUDIO.bgm;
+  if(b&&audioEls.get(b.asset)){
+    const el=audioEls.get(b.asset);
+    let v=(b.level??0.25);
+    if(b.scene_reactive) v *= (1 - 0.4*WORLD.audioDuck);   // シーン連動：うっすら
+    if(WORLD.momentMute) v=0;
+    el.volume=Math.max(0,Math.min(1,v));
+  }
+  for(const se of (AUDIO.se||[])){
+    const el=audioEls.get(se.asset); if(!el) continue;
+    if(se._done) continue;
+    if(progress>= (se.at - 0) ){                 // SE はしっかり、progress到達で発火
+      if(WORLD.momentMute){ se._done=true; continue; }
+      el.volume=Math.min(1,se.level??0.9);
+      el.currentTime=0; el.play().catch(()=>{}); se._done=true;
+    }
+  }
+  // 後方スクロールで SE 再武装
+  for(const se of (AUDIO.se||[])) if(progress < se.at-0.03) se._done=false;
+}
+
+/* ============================ HUD ============================ */
+function drawHud(){
+  const sem = HUD._sem ? '<b>semantic</b>' : '–';
+  HUD.innerHTML =
+    `progress <b>${(progress*100).toFixed(1)}%</b> · axis ${AXIS}<br>`+
+    `unit <b>${WORLD.unitLabel||'–'}</b> · gravity ${WORLD.gravity} · ${sem}`+
+    (WORLD.momentFreeze?' · <b>MOMENT</b>':'')+
+    `<br>layers ${LAYERS.length} · panels ${PANELS.length} · errors ${errCount}`;
+  UNIT.textContent = WORLD.unitLabel||'';
+  UNIT.style.transform =
+    `translateY(calc(-50% + ${Math.sin(performance.now()/700)*WORLD.uiFloat}px))`;
+  UNIT.style.opacity = WORLD.momentFreeze?0.4:0.92;
+}
+
+/* ============================ レイアウト ============================ */
+function resize(){
+  const vw=innerWidth, vh=innerHeight;
+  const ar=STAGE.width/STAGE.height;
+  let w=vw, h=vw/ar;
+  if(h>vh){ h=vh; w=vh*ar; }
+  CV.style.width=w+'px'; CV.style.height=h+'px';
+  // 描画バッファはステージ論理解像度固定（座標は基準解像度の論理px・SPEC§3）
+  CV.width=Math.round(STAGE.width);
+  CV.height=Math.round(STAGE.height);
+}
+addEventListener('resize', ()=>{ if(PROJ) resize(); });
+
+/* ============================ 入力UI ============================ */
+document.getElementById('file').addEventListener('change', e=>{
+  if(e.target.files.length) loadFromFiles(e.target.files).catch(x=>showErr(x.message));
+});
+document.getElementById('btnDemo').addEventListener('click', ()=>{
+  loadFromUrl('test/triosis_scene01.json').catch(x=>showErr(x.message));
+});
+['dragover','drop'].forEach(ev=>document.addEventListener(ev,e=>e.preventDefault()));
+document.addEventListener('drop', e=>{
+  const f=e.dataTransfer.files; if(f&&f.length) loadFromFiles(f).catch(x=>showErr(x.message));
+});
+
+// URL ?proj= で直接読込
+const qp=new URLSearchParams(location.search).get('proj');
+if(qp) loadFromUrl(qp).catch(x=>showErr(x.message));
+</script>
+</body>
+</html>
