@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MotionComic — D1 作画 (v0.2)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{ --bg:#1b1b1f; --pan:#26262c; --line:#3a3a44; --txt:#e8e8ea; --acid:#36ff8a; --dim:#8a8a93; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font:13px/1.4 -apple-system,"Segoe UI",sans-serif;overflow:hidden}
+  #app{display:flex;height:100vh}
+  .col{display:flex;flex-direction:column;background:var(--pan);border-right:1px solid var(--line)}
+  #left{width:230px;padding:8px;gap:8px;overflow:auto}
+  #right{width:260px;padding:8px;gap:8px;overflow:auto;border-left:1px solid var(--line);border-right:none}
+  #center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#101013;position:relative}
+  h3{margin:6px 0 2px;font-size:11px;letter-spacing:.08em;color:var(--dim);text-transform:uppercase}
+  button,select,input{font:inherit;color:var(--txt);background:#33333b;border:1px solid var(--line);
+    border-radius:5px;padding:5px 8px;cursor:pointer}
+  button:hover{border-color:var(--acid)}
+  button.on{background:var(--acid);color:#06210f;border-color:var(--acid);font-weight:600}
+  input[type=range]{width:100%;padding:0}
+  input[type=text],input[type=number]{cursor:text;width:100%}
+  .row{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+  .row>*{flex:1}
+  label{font-size:11px;color:var(--dim);display:block;margin-top:4px}
+  #layers .lay{display:flex;align-items:center;gap:5px;background:#2f2f37;border:1px solid var(--line);
+    border-radius:5px;padding:5px;margin-bottom:4px;cursor:pointer}
+  #layers .lay.sel{border-color:var(--acid);background:#34342c}
+  #layers .lay .nm{flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #layers .lay small{color:var(--dim);font-size:10px}
+  .vis{flex:0 0 auto;width:22px;padding:3px;text-align:center}
+  #stageWrap{position:relative;box-shadow:0 0 0 1px var(--line)}
+  canvas.stagecv{position:absolute;left:0;top:0}
+  #ui-cv{position:absolute;left:0;top:0;cursor:crosshair}
+  #status{position:absolute;bottom:8px;left:8px;font-size:11px;color:var(--dim);
+    background:#000a;padding:4px 8px;border-radius:5px}
+  .seg{display:flex;gap:0}
+  .seg button{border-radius:0;flex:1}
+  .seg button:first-child{border-radius:5px 0 0 5px}
+  .seg button:last-child{border-radius:0 5px 5px 0}
+  .pill{background:#34342c;border:1px solid var(--line);border-radius:4px;padding:2px 6px;font-size:10px;color:var(--acid)}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- LEFT: tools + layers -->
+  <div class="col" id="left">
+    <h3>WORK</h3>
+    <select id="work">
+      <option value="TrioSisBrothers">TrioSisBrothers (縦y)</option>
+      <option value="OppoKids">凹凸キッズ (横x)</option>
+      <option value="UeheUehe">うえへ うえへ (上y_invert)</option>
+    </select>
+    <label>title</label><input type="text" id="title" value="TrioSisBrothers / Scene 01">
+    <label>id</label><input type="text" id="pid" value="triosis-scene01">
+
+    <h3>TOOL</h3>
+    <div class="seg">
+      <button data-tool="pen" class="on">PEN</button>
+      <button data-tool="erase">ERASE</button>
+      <button data-tool="fill">FILL</button>
+    </div>
+    <div class="row">
+      <input type="color" id="color" value="#222222">
+      <select id="size"><option>2</option><option selected>6</option><option>14</option><option>32</option></select>
+    </div>
+
+    <h3>LAYERS</h3>
+    <div class="row">
+      <button id="addLayer">+ LAYER</button>
+      <button id="delLayer">DEL</button>
+    </div>
+    <div class="row">
+      <button id="upLayer">▲ z+</button>
+      <button id="dnLayer">▼ z-</button>
+    </div>
+    <div id="layers"></div>
+  </div>
+
+  <!-- CENTER: stage -->
+  <div id="center">
+    <div id="stageWrap"><div id="status">—</div></div>
+  </div>
+
+  <!-- RIGHT: layer props + panels -->
+  <div class="col" id="right">
+    <h3>LAYER PROPS</h3>
+    <div id="noLayer" style="color:var(--dim)">レイヤー未選択</div>
+    <div id="layerProps" style="display:none">
+      <label>name</label><input type="text" id="lp_name">
+      <div class="row">
+        <div><label>z</label><input type="number" id="lp_z" value="10"></div>
+        <div><label>depth</label><input type="number" id="lp_depth" step="0.1" value="1"></div>
+      </div>
+      <label>layer_role</label>
+      <select id="lp_role">
+        <option value="frame_inside">frame_inside</option>
+        <option value="traveler">traveler</option>
+        <option value="bg">bg</option>
+        <option value="fx">fx</option>
+      </select>
+      <label>opacity</label><input type="range" id="lp_op" min="0" max="100" value="100">
+      <h3>TONE</h3>
+      <select id="lp_tone_type">
+        <option value="">なし</option>
+        <option value="dot">dot</option><option value="line">line</option>
+        <option value="gradient">gradient</option><option value="noise">noise</option>
+      </select>
+      <div class="row">
+        <div><label>density</label><input type="number" id="lp_tone_d" step="0.05" value="0.4"></div>
+        <div><label>angle</label><input type="number" id="lp_tone_a" value="45"></div>
+        <div><label>size</label><input type="number" id="lp_tone_s" value="6"></div>
+      </div>
+      <h3>TEXTURE</h3>
+      <select id="lp_tex">
+        <option value="">なし</option>
+        <option value="watercolor_soft">watercolor_soft</option>
+        <option value="crayon">crayon</option>
+        <option value="paper">paper</option>
+        <option value="paper_cut">paper_cut</option>
+      </select>
+    </div>
+
+    <h3>PANELS (コマ枠)</h3>
+    <div class="row">
+      <button id="panelNew">+ 新規コマ枠</button>
+      <button id="panelFin" style="display:none">確定</button>
+    </div>
+    <div id="panelList"></div>
+    <div id="panelProps" style="display:none">
+      <label>stroke color / width</label>
+      <div class="row">
+        <input type="color" id="pp_col" value="#222222">
+        <input type="number" id="pp_w" value="6">
+      </div>
+      <label>deform.mode (4種固定)</label>
+      <select id="pp_mode">
+        <option value="spring">spring (ばね)</option>
+        <option value="bend">bend (たわみ)</option>
+        <option value="snap">snap (キメ)</option>
+        <option value="round">round (角丸)</option>
+      </select>
+      <div class="row">
+        <div><label>amount(初期)</label><input type="number" id="pp_amt" step="0.05" value="0"></div>
+        <div><label>bind_progress</label><select id="pp_bind"><option value="true">true</option><option value="false">false</option></select></div>
+      </div>
+      <label>spawn_layers (選択中レイヤーを割当)</label>
+      <button id="pp_spawn">選択レイヤーを spawn に追加/解除</button>
+      <div id="pp_spawnList" class="pill" style="margin-top:4px"></div>
+    </div>
+
+    <h3>PROJECT</h3>
+    <button id="exportBtn">⬇ EXPORT (zip: json+png)</button>
+    <label>読み戻し (.zip)</label>
+    <input type="file" id="importFile" accept=".zip">
+  </div>
+</div>
+<script>
+"use strict";
+// ===== 設計憲章準拠: deform 4種 / tone 4種 / texture 4種 固定。アニメ機能は排除（D1=静的レイヤースタック）。
+const WORKS = {
+  TrioSisBrothers:{ axis:'y',        w:1080,h:1920, bg:'#f4efe6', tex:'paper'      },
+  OppoKids:       { axis:'x',        w:1920,h:1080, bg:'#fbf7ee', tex:'watercolor_soft' },
+  UeheUehe:       { axis:'y_invert', w:1080,h:1920, bg:'#eef1f4', tex:'paper_cut'  },
+};
+let STAGE = { w:1080, h:1920, bg:'#f4efe6' };
+let layers = [];      // {id,name,cv,ctx,z,depth,role,opacity,tone,texture,visible}
+let panels = [];      // {id,shape:[[x,y]],stroke,deform,spawn_layers}
+let selLayer = null, selPanel = null;
+let idSeq = 1;
+const newId = p => p + (idSeq++);
+
+let tool='pen', drawing=false, last=null;
+let panelEditing=null; // panel obj being drawn
+
+const wrap = document.getElementById('stageWrap');
+const ui = document.createElement('canvas'); ui.id='ui-cv';
+let scale = 1;
+
+function setStage(){
+  STAGE.w=WORKS[work.value].w; STAGE.h=WORKS[work.value].h; STAGE.bg=WORKS[work.value].bg;
+  // 表示スケール: 高さ最大720px相当
+  scale = Math.min(720/STAGE.h, 1);
+  wrap.style.width = STAGE.w*scale+'px';
+  wrap.style.height= STAGE.h*scale+'px';
+  wrap.style.background = STAGE.bg;
+  ui.width=STAGE.w; ui.height=STAGE.h;
+  ui.style.width=STAGE.w*scale+'px'; ui.style.height=STAGE.h*scale+'px';
+  if(!ui.parentNode) wrap.appendChild(ui);
+  layers.forEach(styleCanvas);
+  redrawUI();
+}
+function styleCanvas(l){
+  l.cv.className='stagecv';
+  l.cv.style.width=STAGE.w*scale+'px';
+  l.cv.style.height=STAGE.h*scale+'px';
+  l.cv.style.opacity=l.opacity;
+  l.cv.style.display=l.visible?'block':'none';
+  if(!l.cv.parentNode) wrap.insertBefore(l.cv, ui);
+  reorderDOM();
+}
+function reorderDOM(){
+  [...layers].sort((a,b)=>a.z-b.z).forEach(l=>wrap.insertBefore(l.cv, ui));
+}
+
+// ---------- Layers ----------
+function addLayer(name){
+  const cv=document.createElement('canvas'); cv.width=STAGE.w; cv.height=STAGE.h;
+  const l={ id:newId('L_'), name:name||('layer'+layers.length), cv, ctx:cv.getContext('2d'),
+    z:(layers.length+1)*10, depth:1.0, role:'frame_inside', opacity:1,
+    tone:null, texture:null, visible:true };
+  layers.push(l); styleCanvas(l); selectLayer(l); renderLayers();
+  return l;
+}
+function selectLayer(l){ selLayer=l; renderLayers(); syncProps(); }
+function renderLayers(){
+  const box=document.getElementById('layers'); box.innerHTML='';
+  [...layers].sort((a,b)=>b.z-a.z).forEach(l=>{
+    const d=document.createElement('div'); d.className='lay'+(l===selLayer?' sel':'');
+    d.innerHTML=`<button class="vis">${l.visible?'●':'○'}</button>
+      <div class="nm">${l.name}<br><small>z${l.z} · ${l.role} · d${l.depth}</small></div>`;
+    d.querySelector('.vis').onclick=e=>{e.stopPropagation();l.visible=!l.visible;styleCanvas(l);renderLayers();};
+    d.onclick=()=>selectLayer(l);
+    box.appendChild(d);
+  });
+}
+function syncProps(){
+  document.getElementById('noLayer').style.display=selLayer?'none':'block';
+  document.getElementById('layerProps').style.display=selLayer?'block':'none';
+  if(!selLayer) return;
+  lp_name.value=selLayer.name; lp_z.value=selLayer.z; lp_depth.value=selLayer.depth;
+  lp_role.value=selLayer.role; lp_op.value=selLayer.opacity*100;
+  lp_tone_type.value=selLayer.tone?selLayer.tone.type:'';
+  lp_tone_d.value=selLayer.tone?selLayer.tone.density:0.4;
+  lp_tone_a.value=selLayer.tone?selLayer.tone.angle:45;
+  lp_tone_s.value=selLayer.tone?selLayer.tone.size:6;
+  lp_tex.value=selLayer.texture||'';
+}
+function bindProps(){
+  lp_name.oninput =()=>{selLayer.name=lp_name.value;renderLayers();};
+  lp_z.onchange   =()=>{selLayer.z=+lp_z.value;reorderDOM();renderLayers();};
+  lp_depth.onchange=()=>{selLayer.depth=+lp_depth.value;renderLayers();};
+  lp_role.onchange =()=>{selLayer.role=lp_role.value;renderLayers();};
+  lp_op.oninput   =()=>{selLayer.opacity=+lp_op.value/100;styleCanvas(selLayer);};
+  const tone=()=>{ const t=lp_tone_type.value;
+    selLayer.tone = t? {type:t,density:+lp_tone_d.value,angle:+lp_tone_a.value,size:+lp_tone_s.value}:null;
+    renderLayers(); };
+  [lp_tone_type,lp_tone_d,lp_tone_a,lp_tone_s].forEach(e=>e.onchange=tone);
+  lp_tex.onchange =()=>{selLayer.texture=lp_tex.value||null;};
+}
+
+// ---------- Drawing ----------
+function pt(e){
+  const r=ui.getBoundingClientRect();
+  return [ (e.clientX-r.left)/scale, (e.clientY-r.top)/scale ];
+}
+ui.addEventListener('pointerdown',e=>{
+  const p=pt(e);
+  if(panelEditing){ panelEditing.shape.push([Math.round(p[0]),Math.round(p[1])]); redrawUI(); return; }
+  if(!selLayer){ setStatus('レイヤーを追加/選択してください'); return; }
+  if(tool==='fill'){ floodFill(selLayer,p); return; }
+  drawing=true; last=p; stroke(selLayer,p,p);
+});
+ui.addEventListener('pointermove',e=>{
+  if(panelEditing){ const p=pt(e); setStatus(`コマ枠: 点${panelEditing.shape.length} 追加クリック / 確定ボタン`); return; }
+  if(!drawing) return;
+  const p=pt(e); stroke(selLayer,last,p); last=p;
+});
+window.addEventListener('pointerup',()=>{drawing=false;last=null;});
+function stroke(l,a,b){
+  const c=l.ctx; c.lineCap='round'; c.lineJoin='round';
+  c.lineWidth=+size.value;
+  if(tool==='erase'){ c.globalCompositeOperation='destination-out'; c.strokeStyle='rgba(0,0,0,1)'; }
+  else { c.globalCompositeOperation='source-over'; c.strokeStyle=color.value; }
+  c.beginPath(); c.moveTo(a[0],a[1]); c.lineTo(b[0],b[1]); c.stroke();
+  c.globalCompositeOperation='source-over';
+}
+function floodFill(l,p){
+  // 単純: 透明領域も含めバケツ（簡易）= クリック点の連結同色を置換
+  const c=l.ctx, W=STAGE.w,H=STAGE.h, img=c.getImageData(0,0,W,H), d=img.data;
+  const x=Math.floor(p[0]),y=Math.floor(p[1]); if(x<0||y<0||x>=W||y>=H) return;
+  const i=(y*W+x)*4, tgt=[d[i],d[i+1],d[i+2],d[i+3]];
+  const hex=color.value, fr=parseInt(hex.substr(1,2),16),fg=parseInt(hex.substr(3,2),16),fb=parseInt(hex.substr(5,2),16);
+  if(tgt[0]===fr&&tgt[1]===fg&&tgt[2]===fb&&tgt[3]===255) return;
+  const st=[[x,y]], seen=new Uint8Array(W*H);
+  while(st.length){
+    const [cx,cy]=st.pop(); if(cx<0||cy<0||cx>=W||cy>=H) continue;
+    const k=cy*W+cx; if(seen[k]) continue; const j=k*4;
+    if(d[j]!==tgt[0]||d[j+1]!==tgt[1]||d[j+2]!==tgt[2]||d[j+3]!==tgt[3]) continue;
+    seen[k]=1; d[j]=fr;d[j+1]=fg;d[j+2]=fb;d[j+3]=255;
+    st.push([cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1]);
+  }
+  c.putImageData(img,0,0);
+}
+
+// ---------- Panels ----------
+function redrawUI(){
+  const c=ui.getContext('2d'); c.clearRect(0,0,ui.width,ui.height);
+  panels.forEach(pl=>{
+    if(pl.shape.length<2) return;
+    c.beginPath(); c.moveTo(pl.shape[0][0],pl.shape[0][1]);
+    pl.shape.slice(1).forEach(p=>c.lineTo(p[0],p[1]));
+    if(pl!==panelEditing) c.closePath();
+    c.lineWidth=pl.stroke.width; c.strokeStyle=pl.stroke.color;
+    c.setLineDash(pl===selPanel?[12,8]:[]); c.stroke(); c.setLineDash([]);
+    pl.shape.forEach(p=>{ c.fillStyle=pl===selPanel?'#36ff8a':'#fff';
+      c.fillRect(p[0]-5,p[1]-5,10,10); c.strokeStyle='#222'; c.lineWidth=2; c.strokeRect(p[0]-5,p[1]-5,10,10); });
+  });
+}
+function newPanel(){
+  const pl={ id:newId('P'), shape:[], stroke:{color:'#222222',width:6},
+    deform:{mode:'spring',amount:0.0,bind_progress:true}, spawn_layers:[] };
+  panels.push(pl); panelEditing=pl; selPanel=pl;
+  document.getElementById('panelFin').style.display='block';
+  document.getElementById('panelNew').classList.add('on');
+  setStatus('コマ枠: キャンバスをクリックで頂点追加 → 確定');
+  renderPanels();
+}
+function finPanel(){
+  if(panelEditing && panelEditing.shape.length<3){ panels=panels.filter(p=>p!==panelEditing); }
+  panelEditing=null;
+  document.getElementById('panelFin').style.display='none';
+  document.getElementById('panelNew').classList.remove('on');
+  redrawUI(); renderPanels(); setStatus('コマ枠 確定');
+}
+function renderPanels(){
+  const box=document.getElementById('panelList'); box.innerHTML='';
+  panels.forEach(pl=>{
+    const b=document.createElement('button');
+    b.textContent=`${pl.id} (${pl.shape.length}点) ${pl.deform.mode}`;
+    b.style.width='100%'; b.style.marginBottom='3px';
+    if(pl===selPanel) b.classList.add('on');
+    b.onclick=()=>{selPanel=pl;syncPanelProps();renderPanels();redrawUI();};
+    box.appendChild(b);
+  });
+  document.getElementById('panelProps').style.display=selPanel?'block':'none';
+  if(selPanel) syncPanelProps();
+}
+function syncPanelProps(){
+  if(!selPanel) return;
+  pp_col.value=selPanel.stroke.color; pp_w.value=selPanel.stroke.width;
+  pp_mode.value=selPanel.deform.mode; pp_amt.value=selPanel.deform.amount;
+  pp_bind.value=String(selPanel.deform.bind_progress);
+  pp_spawnList.textContent=selPanel.spawn_layers.join(', ')||'(なし)';
+}
+function bindPanelProps(){
+  pp_col.onchange=()=>{selPanel.stroke.color=pp_col.value;redrawUI();};
+  pp_w.onchange=()=>{selPanel.stroke.width=+pp_w.value;redrawUI();};
+  pp_mode.onchange=()=>{selPanel.deform.mode=pp_mode.value;renderPanels();};
+  pp_amt.onchange=()=>{selPanel.deform.amount=+pp_amt.value;};
+  pp_bind.onchange=()=>{selPanel.deform.bind_progress=pp_bind.value==='true';};
+  pp_spawn.onclick=()=>{ if(!selPanel||!selLayer) return;
+    const i=selPanel.spawn_layers.indexOf(selLayer.id);
+    if(i<0) selPanel.spawn_layers.push(selLayer.id); else selPanel.spawn_layers.splice(i,1);
+    syncPanelProps(); };
+}
+
+// ---------- Export (v0.2) ----------
+function buildProjectJSON(){
+  const wk=WORKS[work.value];
+  const assets=[], outLayers=[];
+  [...layers].sort((a,b)=>a.z-b.z).forEach(l=>{
+    const aid='a'+l.id;
+    assets.push({ id:aid, type:'image', src:'img/'+l.id+'.png', w:STAGE.w, h:STAGE.h });
+    outLayers.push({
+      id:l.id, name:l.name, asset:aid, z:l.z, depth:l.depth,
+      transform:{ x:0, y:0, scale:1.0, rot:0 },
+      scroll_bind:{ y:{ factor:l.depth } },
+      tone:l.tone||null, texture:l.texture||null, layer_role:l.role
+    });
+  });
+  return {
+    version:'0.2', id:pid.value, title:title.value, work:work.value,
+    scroll:{ axis:wk.axis, length:8000, unit_label:'m', speed_reactive:true },
+    stage:{ width:STAGE.w, height:STAGE.h, background:STAGE.bg, camera_depth:1.0 },
+    assets, layers:outLayers,
+    panels:panels.filter(p=>p.shape.length>=3).map(p=>({
+      id:p.id, shape:p.shape, stroke:p.stroke, deform:p.deform, spawn_layers:p.spawn_layers })),
+    onomatopoeia:[], events:[], audio:{}, post:{}
+  };
+}
+async function doExport(){
+  const proj=buildProjectJSON();
+  const zip=new JSZip();
+  zip.file('project.json', JSON.stringify(proj,null,2));
+  const img=zip.folder('img');
+  for(const l of layers){
+    const b64=l.cv.toDataURL('image/png').split(',')[1];
+    img.file(l.id+'.png', b64, {base64:true});
+  }
+  const blob=await zip.generateAsync({type:'blob'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=pid.value+'_v02.zip'; a.click();
+  setStatus('EXPORT 完了: '+a.download);
+}
+
+// ---------- Import (reload) ----------
+async function doImport(file){
+  const zip=await JSZip.loadAsync(file);
+  const proj=JSON.parse(await zip.file('project.json').async('string'));
+  // reset
+  layers.forEach(l=>l.cv.remove()); layers=[]; panels=[]; selLayer=null; selPanel=null;
+  work.value=proj.work; setStage();
+  title.value=proj.title; pid.value=proj.id;
+  STAGE.bg=proj.stage.background; wrap.style.background=STAGE.bg;
+  for(const L of proj.layers){
+    const cv=document.createElement('canvas'); cv.width=STAGE.w; cv.height=STAGE.h;
+    const l={ id:L.id, name:L.name, cv, ctx:cv.getContext('2d'),
+      z:L.z, depth:L.depth, role:L.layer_role||'frame_inside',
+      opacity:1, tone:L.tone||null, texture:L.texture||null, visible:true };
+    layers.push(l); styleCanvas(l);
+    const af=zip.file('img/'+L.id+'.png');
+    if(af){ const url=URL.createObjectURL(await af.async('blob'));
+      await new Promise(r=>{ const im=new Image(); im.onload=()=>{l.ctx.drawImage(im,0,0);URL.revokeObjectURL(url);r();}; im.src=url; }); }
+    const m=Math.max(...layers.map(x=>+(''+x.id).replace(/\D/g,'')||0),0);
+    idSeq=Math.max(idSeq,m+1);
+  }
+  panels=(proj.panels||[]).map(p=>({ id:p.id, shape:p.shape, stroke:p.stroke,
+    deform:p.deform, spawn_layers:p.spawn_layers||[] }));
+  if(layers.length) selectLayer(layers[0]);
+  renderLayers(); renderPanels(); redrawUI();
+  setStatus('IMPORT 完了: '+proj.id+' / layers '+layers.length+' / panels '+panels.length);
+}
+
+function setStatus(s){ document.getElementById('status').textContent=s; }
+
+// ---------- wire up ----------
+document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{
+  tool=b.dataset.tool;
+  document.querySelectorAll('[data-tool]').forEach(x=>x.classList.toggle('on',x===b));
+});
+document.getElementById('addLayer').onclick=()=>addLayer();
+document.getElementById('delLayer').onclick=()=>{ if(!selLayer)return;
+  selLayer.cv.remove(); layers=layers.filter(l=>l!==selLayer);
+  selLayer=layers[0]||null; renderLayers(); syncProps(); };
+document.getElementById('upLayer').onclick=()=>{ if(selLayer){selLayer.z+=10;reorderDOM();renderLayers();syncProps();} };
+document.getElementById('dnLayer').onclick=()=>{ if(selLayer){selLayer.z=Math.max(0,selLayer.z-10);reorderDOM();renderLayers();syncProps();} };
+document.getElementById('panelNew').onclick=newPanel;
+document.getElementById('panelFin').onclick=finPanel;
+document.getElementById('exportBtn').onclick=doExport;
+document.getElementById('importFile').onchange=e=>{ if(e.target.files[0]) doImport(e.target.files[0]); };
+document.getElementById('work').onchange=()=>{ setStage(); };
+
+bindProps(); bindPanelProps(); setStage();
+addLayer('背景'); addLayer('カカシ兄_本体'); addLayer('効果');
+selectLayer(layers[0]);
+setStatus('準備完了 — レイヤーに描画してください');
+</script>
+</body>
+</html>
