@@ -1,0 +1,159 @@
+{
+  "_note": "D4実作品。TrioSisBrothers/Scene01『姉、張り切りすぎる』。基本フォーマット①〜⑥を1サイクル。憲章2遵守=deform4種/easing5種/post§10のみ。semantic_shiftはworld.air→陰/凪（D2b汎用化待ち・統括承認SPEC§8.2.1）。可視の読みはpost§8.1で並走。",
+  "version": "0.2",
+  "id": "triosis-scene01",
+  "title": "TrioSisBrothers / Scene 01 — 姉、張り切りすぎる",
+  "work": "TrioSisBrothers",
+  "scroll": { "axis": "y", "length": 10000, "unit_label": "m", "speed_reactive": true },
+  "stage": { "width": 1080, "height": 1920, "background": "#f4efe6", "camera_depth": 1.0 },
+
+  "assets": [
+    { "id": "a_sky",     "type": "image", "src": "img/L_sky.png",     "w": 1080, "h": 1920 },
+    { "id": "a_far",     "type": "image", "src": "img/L_far.png",     "w": 1080, "h": 1920 },
+    { "id": "a_mid",     "type": "image", "src": "img/L_mid.png",     "w": 1080, "h": 1920 },
+    { "id": "a_kakashi", "type": "image", "src": "img/L_kakashi.png", "w": 1080, "h": 1920 },
+    { "id": "a_yuki",    "type": "image", "src": "img/L_yuki.png",    "w": 1080, "h": 1920 },
+    { "id": "a_teru",    "type": "image", "src": "img/L_teru.png",    "w": 1080, "h": 1920 },
+    { "id": "a_ane",     "type": "image", "src": "img/L_ane.png",     "w": 1080, "h": 1920 },
+    { "id": "a_imouto",  "type": "image", "src": "img/L_imouto.png",  "w": 1080, "h": 1920 },
+    { "id": "a_sue",     "type": "image", "src": "img/L_sue.png",     "w": 1080, "h": 1920 },
+    { "id": "a_fore",    "type": "image", "src": "img/L_fore.png",    "w": 1080, "h": 1920 },
+    { "id": "a_kira",    "type": "image", "src": "img/L_kira.png",    "w": 1080, "h": 1920 },
+    { "id": "bgm_main",  "type": "audio", "src": "snd/bgm_main.wav",  "loop": true },
+    { "id": "se_basa",   "type": "audio", "src": "snd/se_basa.wav" },
+    { "id": "se_kira",   "type": "audio", "src": "snd/se_kira.wav" },
+    { "id": "se_hyu",    "type": "audio", "src": "snd/se_hyu.wav" },
+    { "id": "se_crash",  "type": "audio", "src": "snd/se_crash.wav" }
+  ],
+
+  "layers": [
+    { "id": "L_sky",     "name": "空_不動",        "asset": "a_sky",     "z": 0,  "depth": 0.0,
+      "scroll_bind": null, "layer_role": "bg" },
+    { "id": "L_far",     "name": "遠景_雪丘",      "asset": "a_far",     "z": 10, "depth": 0.35,
+      "scroll_bind": { "y": { "factor": 0.35 } }, "layer_role": "bg" },
+    { "id": "L_mid",     "name": "雪原_土地",      "asset": "a_mid",     "z": 20, "depth": 0.7,
+      "scroll_bind": { "y": { "factor": 0.7 }, "easing": "paper_soft" }, "layer_role": "frame_inside" },
+    { "id": "L_kakashi", "name": "カカシ兄",        "asset": "a_kakashi", "z": 30, "depth": 0.9,
+      "transform": { "x": 0, "y": 0, "scale": 1.0, "rot": 0 },
+      "scroll_bind": { "y": { "factor": 0.9 }, "easing": "wind_lag" }, "layer_role": "frame_inside" },
+    { "id": "L_yuki",    "name": "雪だるま弟",      "asset": "a_yuki",    "z": 32, "depth": 0.95,
+      "transform": { "x": 0, "y": 0, "scale": 1.0, "rot": 0 },
+      "scroll_bind": { "y": { "factor": 0.95 }, "easing": "paper_soft" }, "layer_role": "frame_inside" },
+    { "id": "L_teru",    "name": "てるてる坊主",    "asset": "a_teru",    "z": 34, "depth": 1.0,
+      "scroll_bind": { "y": { "factor": 1.0 }, "easing": "float_memory" }, "layer_role": "frame_inside" },
+    { "id": "L_ane",     "name": "雨傘姉",          "asset": "a_ane",     "z": 60, "depth": 1.4,
+      "transform": { "x": 0, "y": -760, "scale": 0.8, "rot": 0 },
+      "scroll_bind": { "y": { "factor": 1.4 }, "easing": "wind_lag" }, "layer_role": "traveler" },
+    { "id": "L_imouto",  "name": "日傘妹",          "asset": "a_imouto",  "z": 58, "depth": 1.3,
+      "transform": { "x": 0, "y": 0, "scale": 1.0, "rot": 0 },
+      "scroll_bind": { "y": { "factor": 1.3 }, "easing": "paper_soft" }, "layer_role": "traveler" },
+    { "id": "L_sue",     "name": "折りたたみ末っ子", "asset": "a_sue",     "z": 56, "depth": 1.5,
+      "transform": { "x": 0, "y": 0, "scale": 1.0, "rot": 0 },
+      "scroll_bind": { "y": { "factor": 1.5 }, "easing": "wobble_child" }, "layer_role": "traveler" },
+    { "id": "L_fore",    "name": "手前_葉雪片",     "asset": "a_fore",    "z": 80, "depth": 1.7,
+      "scroll_bind": { "y": { "factor": 1.7 }, "easing": "wobble_child" }, "layer_role": "fx" },
+    { "id": "L_kira",    "name": "微粒子_キラッ",   "asset": "a_kira",    "z": 70, "depth": 1.0,
+      "scroll_bind": { "y": { "factor": 1.0 } }, "layer_role": "fx" }
+  ],
+
+  "panels": [
+    { "id": "P1",
+      "shape": [[120,560],[960,560],[960,1700],[120,1700]],
+      "stroke": { "color": "#222", "width": 7 },
+      "deform": { "mode": "snap", "amount": 0.0, "bind_progress": false },
+      "spawn_layers": ["L_kakashi", "L_yuki"] },
+    { "id": "P2",
+      "shape": [[90,500],[1000,470],[1000,1560],[90,1620]],
+      "stroke": { "color": "#1a1a1a", "width": 8 },
+      "deform": { "mode": "bend", "amount": 0.0, "bind_progress": false },
+      "spawn_layers": [] }
+  ],
+
+  "onomatopoeia": [
+    { "id": "O_basa", "text": "バサァッ", "asset": null,
+      "at": [0.16, 0.25], "enter": "drop_from_top", "z": 90,
+      "transform": { "x": 560, "y": 620, "scale": 1.0, "rot": -6 },
+      "style": { "font": "comic", "color": "#1c2746", "stroke": "#fff", "stroke_w": 10, "size": 128 },
+      "x_lyric_anim": null },
+    { "id": "O_kage", "text": "……翳る", "asset": null,
+      "at": [0.33, 0.43], "enter": "drop_from_top", "z": 86,
+      "transform": { "x": 540, "y": 980, "scale": 0.78, "rot": 2 },
+      "style": { "font": "comic", "color": "#33415e", "stroke": "#fff", "stroke_w": 7, "size": 92 } },
+    { "id": "O_kira", "text": "…キラッ", "asset": null,
+      "at": [0.615, 0.67], "enter": "drop_from_top", "z": 92,
+      "transform": { "x": 560, "y": 900, "scale": 0.9, "rot": -3 },
+      "style": { "font": "comic", "color": "#7a6a2e", "stroke": "#fff", "stroke_w": 8, "size": 104 } },
+    { "id": "O_hyu", "text": "ヒュオォォ", "asset": null,
+      "at": [0.67, 0.79], "enter": "drop_from_top", "z": 90,
+      "transform": { "x": 540, "y": 700, "scale": 1.05, "rot": -8 },
+      "style": { "font": "comic", "color": "#26303f", "stroke": "#fff", "stroke_w": 10, "size": 124 } },
+    { "id": "O_dota", "text": "ドタバタッ！", "asset": null,
+      "at": [0.82, 0.95], "enter": "drop_from_top", "z": 92,
+      "transform": { "x": 540, "y": 1120, "scale": 1.0, "rot": 5 },
+      "style": { "font": "comic", "color": "#151515", "stroke": "#fff", "stroke_w": 10, "size": 118 } }
+  ],
+
+  "events": [
+    { "_c": "① 環境変化: P1がカチッ。amountは1回のみ→以後ホールド。mode切替はdiscreteで多重可（player挙動制約）。",
+      "at": [0.02, 0.16], "target": "P1",
+      "set": { "deform.amount": 0.95 }, "easing": "snap_comic" },
+
+    { "_c": "② 雨傘姉が張り切り前へ（y/scaleは姉専用・1回）",
+      "at": [0.15, 0.30], "target": "L_ane",
+      "set": { "transform.y": 0, "transform.scale": 1.05 }, "easing": "snap_comic" },
+
+    { "_c": "③ 別問題: 守りすぎで空気が翳る（核=semantic_shift。波及はD2b汎用化待ち）",
+      "at": [0.30, 0.46], "type": "semantic_shift", "target": "world.air", "value": "陰" },
+    { "_c": "③ P1が縮こまる: mode→round（discrete・amountは①保持値0.95を流用）",
+      "at": [0.30, 0.32], "target": "P1", "set": { "deform.mode": "round" } },
+
+    { "_c": "④ 位置変更: 妹が光を取りに寄る（x/y専用・1回）",
+      "at": [0.46, 0.62], "target": "L_imouto",
+      "set": { "transform.x": -150, "transform.y": 40 }, "easing": "paper_soft" },
+    { "_c": "④ 末っ子が隙間へ（x/y専用・1回）",
+      "at": [0.46, 0.62], "target": "L_sue",
+      "set": { "transform.x": 130, "transform.y": -60 }, "easing": "wobble_child" },
+    { "_c": "④ 兄がわずかに傾き譲る（rot専用・1回）",
+      "at": [0.46, 0.62], "target": "L_kakashi",
+      "set": { "transform.rot": -4 }, "easing": "float_memory" },
+    { "_c": "④ P2が譲ってたわむ（P2.amount専用・1回→ホールド）",
+      "at": [0.46, 0.62], "target": "P2",
+      "set": { "deform.amount": 0.7 }, "easing": "paper_soft" },
+
+    { "_c": "⑤ 一瞬ちょうどいい＝凪（核=semantic_shift。D2b波及待ち）",
+      "at": [0.60, 0.68], "type": "semantic_shift", "target": "world.air", "value": "凪" },
+    { "_c": "⑤ moment: 撮影処理が抜ける素の一瞬・無音・微粒子(L_kira)・静止",
+      "at": [0.615, 0.665], "type": "moment",
+      "set": { "post.grain": 0, "audio.mute": true, "scroll.snap": true } },
+
+    { "_c": "⑥ 次の風で崩壊: P1がばね揺れへ（mode discrete・amount①保持値で振れる）",
+      "at": [0.67, 0.69], "target": "P1", "set": { "deform.mode": "spring" } },
+    { "_c": "⑥ P2もばね揺れへ（mode discrete）",
+      "at": [0.69, 0.71], "target": "P2", "set": { "deform.mode": "spring" } },
+    { "_c": "⑥ 雨傘姉が風に流される（x/rot専用・②と別キー・1回）",
+      "at": [0.67, 0.86], "target": "L_ane",
+      "set": { "transform.x": 290, "transform.rot": -24 }, "easing": "snap_comic" },
+    { "_c": "⑥ 日傘妹が煽られる（rot専用・④と別キー・1回）",
+      "at": [0.70, 0.90], "target": "L_imouto",
+      "set": { "transform.rot": 16 }, "easing": "wobble_child" },
+    { "_c": "⑥ 撮影が乱れる: ファイル内唯一のpost数値イベント（各キー1回・安全）",
+      "at": [0.67, 0.88], "target": "post",
+      "set": { "chromatic": 0.16, "vignette": 0.30,
+               "color_shift.r": 1.0, "color_shift.b": 1.0 }, "easing": "snap_comic" }
+  ],
+
+  "audio": {
+    "bgm": { "asset": "bgm_main", "level": 0.22, "scene_reactive": true },
+    "se": [
+      { "asset": "se_basa",  "at": 0.17,  "level": 0.85 },
+      { "asset": "se_kira",  "at": 0.60,  "level": 0.7 },
+      { "asset": "se_hyu",   "at": 0.68,  "level": 0.9 },
+      { "asset": "se_crash", "at": 0.84,  "level": 0.9 }
+    ]
+  },
+
+  "post": {
+    "grain": 0.12, "vignette": 0.22, "bloom": 0.25,
+    "color_shift": { "r": 1.02, "g": 1.0, "b": 0.98 }, "chromatic": 0.0, "lut": null
+  }
+}
