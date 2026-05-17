@@ -127,6 +127,8 @@ const WORLD = {
   audioDelay:0, audioDuck:0,
   parallaxMul:1,          // パララックス強度倍率
   textDrift:0,            // テキスト浮遊
+  concept:null,           // semantic_shift 概念名（区間後も持続・表示用ラベル）
+  semTarget:null,         // 直近 semantic_shift の target（意味ラベル・分岐しない）
   momentFreeze:false, momentGrain:null, momentMute:false
 };
 
@@ -291,33 +293,66 @@ function readProgress(){
   progress=Math.min(1,Math.max(0,progress));
 }
 
-/* ============================ semantic_shift 最小波及 ===================
- * B: v0.2 は波及辞書未定義。受け入れ基準デモに必要な最小のみハードコード。
- * 拡張せず、必要になった波及は論点として報告（v0.3で辞書化予定）。 */
+/* ============================ semantic_shift 汎用波及（§8.2.1 v0.2.1）===
+ * 憲章2準拠：per-concept辞書で「target/conceptによりチャネル選択を分岐」しない。
+ * value を概念強度スカラへ写像し（§8.2.1 明文許可）、target非依存で
+ * 固定7チャネルを一律駆動。target は意味ラベルとして保持・表示のみ。 */
+
+// value 既知名 → {s:-1..+1 概念強度（符号=寒/暖・収/拡）, ease:プリセット名}
+// ＝value→強度の連続写像表（チャネル選択は分岐しない＝辞書化に非該当）。
+const SEM_VALUE = {
+  'memory': { s:-1.0, ease:'float_memory' },  // 記憶＝寒色・漂う（後方互換基準）
+  '陰':     { s:-0.7, ease:'paper_soft'   },
+  '凪':     { s:-0.3, ease:'wind_lag'     },
+  '陽':     { s: 0.7, ease:'wobble_child' },
+  '動':     { s: 1.0, ease:'snap_comic'   }
+};
+
 function applySemantic(target, value, amt){
   // amt: 0..1（区間内の効き具合。出入りを滑らかに）
-  if(target==='world.gravity' && value==='memory'){
-    WORLD.gravity='memory';
-    WORLD.easingBias='float_memory';     // 追従が漂う
-    WORLD.colorTemp = -0.5*amt;          // 色温度：寒色へ
-    WORLD.uiFloat   = 8*amt;             // UI/単位ラベル浮遊
-    WORLD.audioDelay= 0.35*amt;          // 音が遅れて届く
-    WORLD.audioDuck = 0.5*amt;           // BGMさらにうっすら
-    WORLD.parallaxMul = 1 + 0.6*amt;     // 奥行きが伸びる感覚
-    WORLD.textDrift = amt;
-  } else if(target==='scroll.unit_label'){
+  WORLD.semTarget = target;                 // 意味ラベル保持（分岐に使わない）
+  if(typeof value==='string') WORLD.concept = value;  // 概念名（区間後も持続）
+
+  // 後方互換特例（value配列の unit_label 等）は _unhandled に記録しない
+  const isCompat = (target==='scroll.unit_label')
+                 || (target==='world.gravity' && value==='memory');
+
+  // --- value → 概念強度スカラ（未知=中庸 s:0 ＋ _unhandled 記録維持）---
+  let prof = (typeof value==='string') ? SEM_VALUE[value] : null;
+  if(!prof){
+    prof = { s:0, ease:WORLD.easingBias };
+    if(!isCompat){
+      WORLD._unhandled = WORLD._unhandled||new Set();
+      WORLD._unhandled.add(target+' = '+JSON.stringify(value));
+    }
+  }
+  const s = prof.s, mag = Math.abs(s)*amt;
+
+  // --- target非依存・固定7チャネル一律駆動（過渡数値＝区間内のみ）---
+  // s===0（未知=中庸／互換配列）は過渡を書かない＝他 semantic_shift の
+  // 同時波及を上書きしない（中庸＝波及なし。§8.2.1）。
+  if(s!==0){
+    WORLD.easingBias  = prof.ease || null;
+    WORLD.colorTemp   = s*0.5*amt;          // 符号で寒/暖
+    WORLD.uiFloat     = 8*mag;
+    WORLD.audioDelay  = 0.35*mag;
+    WORLD.audioDuck   = 0.5*mag;            // BGMさらにうっすら
+    WORLD.parallaxMul = 1 + 0.6*mag;        // 奥行き：強度駆動（v0.3で符号方針論点）
+    WORLD.textDrift   = mag;
+  }
+
+  // --- 後方互換の特例（回帰ゼロ・§8.2.1）---
+  if(target==='world.gravity' && value==='memory') WORLD.gravity='memory';
+  if(target==='scroll.unit_label'){
     // 数値→詩：配列なら progress に応じ順に置換（1200m →「祈り」等）
     if(Array.isArray(value)){
       const i=Math.min(value.length-1, Math.floor(amt*value.length));
       WORLD.unitLabel = value[i];
     } else WORLD.unitLabel = value;
-  } else {
-    // 未定義 target → 拡張せず無視（論点として報告対象）
-    WORLD._unhandled = WORLD._unhandled||new Set();
-    WORLD._unhandled.add(target+' = '+JSON.stringify(value));
   }
 }
 function resetSemantic(){
+  // 過渡7チャネルは区間外で0復帰。概念名（concept/semTarget/gravity）は持続。
   WORLD.easingBias=null; WORLD.colorTemp=0; WORLD.uiFloat=0;
   WORLD.audioDelay=0; WORLD.audioDuck=0; WORLD.parallaxMul=1; WORLD.textDrift=0;
   if(WORLD.gravity!=='memory' && PROJ) WORLD.unitLabel=PROJ.scroll?.unit_label||WORLD.unitLabel;
@@ -723,7 +758,9 @@ function drawHud(){
   const sem = HUD._sem ? '<b>semantic</b>' : '–';
   HUD.innerHTML =
     `progress <b>${(progress*100).toFixed(1)}%</b> · axis ${AXIS}<br>`+
-    `unit <b>${WORLD.unitLabel||'–'}</b> · gravity ${WORLD.gravity} · ${sem}`+
+    `unit <b>${WORLD.unitLabel||'–'}</b> · gravity ${WORLD.gravity}`+
+    (WORLD.concept?` · ${WORLD.semTarget||'sem'}=<b>${WORLD.concept}</b>`:'')+
+    ` · ${sem}`+
     (WORLD.momentFreeze?' · <b>MOMENT</b>':'')+
     `<br>layers ${LAYERS.length} · panels ${PANELS.length} · errors ${errCount}`;
   UNIT.textContent = WORLD.unitLabel||'';
