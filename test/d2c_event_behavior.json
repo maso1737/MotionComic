@@ -1,0 +1,46 @@
+{
+  "_note": "D2c検証用。#1=同一target.keyに区間違い数値event2つ / #2=離散mode逆スクロール復帰 / #3=始点=初期transform。assetは無くプレースホルダで可。",
+  "version": "0.2",
+  "id": "d2c-event-behavior",
+  "title": "D2c event behavior test",
+  "work": "test",
+  "scroll": { "axis": "y", "length": 6000, "unit_label": "u" },
+  "stage": { "width": 1080, "height": 1920, "background": "#eee" },
+
+  "assets": [
+    { "id": "a_box", "type": "image", "src": "img/none_box.png", "w": 400, "h": 400 }
+  ],
+
+  "layers": [
+    { "id": "L_box", "name": "box", "asset": "a_box", "z": 10, "depth": 1.0,
+      "transform": { "x": 100, "y": 800, "scale": 1.0, "rot": 0 } }
+  ],
+
+  "panels": [
+    { "id": "P1",
+      "shape": [[120,560],[960,560],[960,1700],[120,1700]],
+      "stroke": { "color": "#222", "width": 7 },
+      "deform": { "mode": "snap", "amount": 0.0, "bind_progress": false } }
+  ],
+
+  "events": [
+    { "_c": "#1-a: L_box.transform.x を [0.10,0.30] で 100→500 (始点=初期100=#3)",
+      "at": [0.10, 0.30], "target": "L_box",
+      "set": { "transform.x": 500 }, "easing": "snap_comic" },
+    { "_c": "#1-b: 同一key transform.x を別区間 [0.55,0.75] で 始点100→900。両区間で効くこと",
+      "at": [0.55, 0.75], "target": "L_box",
+      "set": { "transform.x": 900 }, "easing": "snap_comic" },
+
+    { "_c": "#2-a: P1 mode→round @[0.20,0.22] (discrete)",
+      "at": [0.20, 0.22], "target": "P1", "set": { "deform.mode": "round" } },
+    { "_c": "#2-b: P1 mode→bend @[0.60,0.62] (discrete)。逆行で round/snap へ戻ること",
+      "at": [0.60, 0.62], "target": "P1", "set": { "deform.mode": "bend" } },
+    { "_c": "P1 amount 1回 [0.05,0.20]→0.9 ホールド確認",
+      "at": [0.05, 0.20], "target": "P1", "set": { "deform.amount": 0.9 }, "easing": "snap_comic" }
+  ],
+
+  "post": {
+    "grain": 0.1, "vignette": 0.2, "bloom": 0.2,
+    "color_shift": { "r": 1.0, "g": 1.0, "b": 1.0 }, "chromatic": 0.0, "lut": null
+  }
+}
