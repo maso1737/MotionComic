@@ -155,6 +155,16 @@
     <button id="exportBtn">⬇ EXPORT (zip: json+png)</button>
     <label>読み戻し (.zip)</label>
     <input type="file" id="importFile" accept=".zip">
+    <details id="workflowHelp" style="margin-top:10px;font-size:12px;line-height:1.6">
+      <summary style="cursor:pointer;font-weight:bold">作画者手順（描く→playerで確認）</summary>
+      <ol style="margin:6px 0 0;padding-left:18px">
+        <li>レイヤーに描く＋必要ならコマ枠を引く。</li>
+        <li><b>EXPORT</b> で <code>&lt;id&gt;_v02.zip</code> を書き出す（中身＝<code>project.json</code>＋<code>img/*.png</code>）。</li>
+        <li>zip を解凍し、中身を <code>works/&lt;scene&gt;/</code> へそのまま置く（<code>project.json</code> と <code>img/</code> が直下になる）。</li>
+        <li><code>player.html?proj=works/&lt;scene&gt;/project.json</code> で確認。</li>
+      </ol>
+      <p style="margin:6px 0 0;color:#888">※ 音(snd/)は作画ツール外。zipは <code>img/</code> のみ。</p>
+    </details>
   </div>
 </div>
 <script>
